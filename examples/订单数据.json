@@ -1,0 +1,45 @@
+{
+  "batch": "2026-Q1",
+  "generated_at": "2026-03-31T18:00:00+08:00",
+  "summary": {
+    "orders_total": 4,
+    "amount_total": 12860.5,
+    "currency": "CNY"
+  },
+  "data": {
+    "items": [
+      {
+        "order_id": "SO-2026-0311",
+        "customer": "沈阳智算科技有限公司",
+        "region": "沈阳",
+        "amount": 5980.0,
+        "status": "已交付",
+        "items_count": 12
+      },
+      {
+        "order_id": "SO-2026-0312",
+        "customer": "大连云图信息技术有限公司",
+        "region": "大连",
+        "amount": 3280.5,
+        "status": "已交付",
+        "items_count": 7
+      },
+      {
+        "order_id": "SO-2026-0318",
+        "customer": "长春启元智能装备有限公司",
+        "region": "长春",
+        "amount": 2600.0,
+        "status": "履约中",
+        "items_count": 5
+      },
+      {
+        "order_id": "SO-2026-0325",
+        "customer": "哈尔滨工业大学计算学部",
+        "region": "哈尔滨",
+        "amount": 1000.0,
+        "status": "待支付",
+        "items_count": 3
+      }
+    ]
+  }
+}

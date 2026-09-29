@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Toolbox · 手写 Function Calling 循环的 Agent 工具箱</title>
+<style>
+/* ===================================================================
+   设计变量 —— 深色科技风
+   =================================================================== */
+:root{
+  --bg:#080b14;
+  --bg-grid:rgba(109,94,252,.05);
+  --panel:#0f1626;
+  --panel-2:#151f34;
+  --panel-3:#1b2740;
+  --border:#22304e;
+  --border-2:#2c3d61;
+  --text:#e7edf9;
+  --text-2:#b9c6de;
+  --muted:#7f90ad;
+  --accent:#6d5efc;
+  --accent-2:#22d3ee;
+  --accent-soft:rgba(109,94,252,.14);
+  --ok:#22c55e;
+  --ok-soft:rgba(34,197,94,.13);
+  --warn:#f59e0b;
+  --warn-soft:rgba(245,158,11,.13);
+  --err:#f05252;
+  --err-soft:rgba(240,82,82,.13);
+  --radius:12px;
+  --radius-sm:8px;
+  --mono:"JetBrains Mono","Cascadia Code","SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  background-image:
+    linear-gradient(var(--bg-grid) 1px,transparent 1px),
+    linear-gradient(90deg,var(--bg-grid) 1px,transparent 1px),
+    radial-gradient(1100px 600px at 15% -10%,rgba(109,94,252,.16),transparent 60%),
+    radial-gradient(900px 500px at 95% 0%,rgba(34,211,238,.10),transparent 55%);
+  background-size:42px 42px,42px 42px,100% 100%,100% 100%;
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:14px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#26344f;border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#33456a}
+
+/* ===================================================================
+   顶栏
+   =================================================================== */
+.topbar{
+  display:flex;align-items:center;gap:16px;
+  padding:14px 22px;
+  border-bottom:1px solid var(--border);
+  background:rgba(10,14,26,.82);
+  backdrop-filter:blur(10px);
+  position:sticky;top:0;z-index:30;
+}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.logo{
+  width:38px;height:38px;flex:0 0 38px;border-radius:10px;
+  background:linear-gradient(140deg,var(--accent),var(--accent-2));
+  display:grid;place-items:center;font-size:19px;
+  box-shadow:0 0 22px rgba(109,94,252,.42);
+}
+.brand h1{font-size:16px;font-weight:650;letter-spacing:.2px;white-space:nowrap}
+.brand p{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badges{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;align-items:center}
+.badge{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:500;
+  background:var(--panel-2);border:1px solid var(--border);color:var(--text-2);
+  white-space:nowrap;
+}
+.badge .dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.badge.on{background:var(--ok-soft);border-color:rgba(34,197,94,.35);color:#86efac}
+.badge.on .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.badge.off{background:var(--warn-soft);border-color:rgba(245,158,11,.35);color:#fcd34d}
+.badge.off .dot{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.badge.accent{background:var(--accent-soft);border-color:rgba(109,94,252,.4);color:#c4b8ff}
+.badge.accent .dot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+
+/* ===================================================================
+   布局
+   =================================================================== */
+.layout{
+  display:grid;grid-template-columns:352px minmax(0,1fr);
+  gap:18px;padding:18px 22px 26px;
+  height:calc(100vh - 67px);
+}
+.sidebar{display:flex;flex-direction:column;gap:14px;min-height:0;overflow-y:auto;padding-right:4px}
+.main{display:flex;flex-direction:column;min-height:0;gap:14px}
+
+.card{
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:var(--radius);overflow:hidden;flex:0 0 auto;
+}
+.card-head{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 14px;border-bottom:1px solid var(--border);
+  background:var(--panel-2);
+}
+.card-head h2{font-size:12.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--text-2)}
+.card-head .count{
+  margin-left:auto;font-size:11px;color:var(--muted);
+  font-family:var(--mono);background:var(--panel-3);
+  padding:2px 8px;border-radius:999px;border:1px solid var(--border);
+}
+.card-body{padding:12px 14px}
+
+/* ===================================================================
+   工具清单
+   =================================================================== */
+.tool-search{
+  width:100%;padding:7px 10px;margin-bottom:10px;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);font-size:12.5px;font-family:var(--sans);outline:none;
+}
+.tool-search:focus{border-color:var(--accent)}
+.tools{display:flex;flex-direction:column;gap:7px;max-height:340px;overflow-y:auto;padding-right:2px}
+.tool{
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--panel-2);padding:9px 11px;cursor:pointer;
+  transition:border-color .15s,background .15s;
+}
+.tool:hover{border-color:var(--border-2);background:var(--panel-3)}
+.tool.off{opacity:.42}
+.tool-top{display:flex;align-items:center;gap:7px}
+.tool-name{
+  font-family:var(--mono);font-size:12.5px;font-weight:600;color:#c9d6f0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.tool-flag{
+  font-size:9.5px;padding:1px 6px;border-radius:4px;font-weight:600;
+  background:var(--warn-soft);color:#fcd34d;border:1px solid rgba(245,158,11,.3);
+  flex:0 0 auto;
+}
+.tool-calls{font-size:10.5px;color:var(--muted);font-family:var(--mono);margin-left:auto;flex:0 0 auto}
+.tool-desc{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.5}
+.tool-params{
+  font-family:var(--mono);font-size:10.5px;color:#8ba3c7;margin-top:5px;
+  background:var(--bg);border:1px solid var(--border);border-radius:5px;
+  padding:4px 7px;word-break:break-all;
+}
+.tool-schema{
+  display:none;margin-top:6px;font-family:var(--mono);font-size:10.5px;
+  color:#93b4d8;background:var(--bg);border:1px solid var(--border);
+  border-radius:5px;padding:7px;max-height:190px;overflow:auto;white-space:pre;
+}
+.tool.expanded .tool-schema{display:block}
+
+/* ===================================================================
+   轨迹区
+   =================================================================== */
+.runs{flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding-right:5px}
+.empty{
+  height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;color:var(--muted);text-align:center;padding:40px 20px;
+}
+.empty .big{font-size:44px;line-height:1;filter:grayscale(.15)}
+.empty h3{font-size:15px;color:var(--text-2);font-weight:600}
+.empty p{font-size:12.5px;max-width:520px;line-height:1.7}
+.chips{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin-top:6px}
+.chip{
+  padding:5px 11px;border-radius:999px;font-size:12px;cursor:pointer;
+  background:var(--panel-2);border:1px solid var(--border);color:var(--text-2);
+  transition:.15s;
+}
+.chip:hover{border-color:var(--accent);color:#c4b8ff;background:var(--accent-soft)}
+
+.run{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.run-head{
+  display:flex;align-items:center;gap:9px;padding:9px 14px;
+  border-bottom:1px solid var(--border);background:var(--panel-2);
+}
+.run-q{font-size:13px;font-weight:600;color:var(--text);flex:1 1 auto;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.run-meta{font-size:11px;color:var(--muted);font-family:var(--mono);flex:0 0 auto}
+.run-body{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+
+/* 思考中 */
+.thinking{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12.5px}
+.spinner{
+  width:13px;height:13px;border-radius:50%;
+  border:2px solid var(--border-2);border-top-color:var(--accent);
+  animation:spin .7s linear infinite;flex:0 0 auto;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 中间想法 */
+.thought{
+  border-left:2px solid var(--accent);background:var(--accent-soft);
+  padding:7px 11px;border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+  font-size:12.5px;color:#cfc6ff;white-space:pre-wrap;word-break:break-word;
+}
+.thought::before{content:"想法 ";font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.5px}
+
+/* 工具调用 */
+.call{
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--panel-2);overflow:hidden;
+}
+.call.dangerous{border-color:rgba(245,158,11,.4)}
+.call-h{
+  display:flex;align-items:center;gap:8px;padding:7px 11px;cursor:pointer;
+  user-select:none;background:rgba(255,255,255,.02);
+}
+.call-h:hover{background:rgba(255,255,255,.045)}
+.caret{color:var(--muted);font-size:10px;transition:transform .15s;flex:0 0 auto}
+.call.open .caret{transform:rotate(90deg)}
+.call-tag{
+  font-size:9.5px;font-weight:700;letter-spacing:.5px;
+  padding:2px 7px;border-radius:4px;flex:0 0 auto;
+  background:var(--accent-soft);color:#c4b8ff;border:1px solid rgba(109,94,252,.35);
+}
+.call-tag.warn{background:var(--warn-soft);color:#fcd34d;border-color:rgba(245,158,11,.35)}
+.call-name{font-family:var(--mono);font-size:12.5px;font-weight:600;color:#c9d6f0}
+.call-time{margin-left:auto;font-size:10.5px;color:var(--muted);font-family:var(--mono);flex:0 0 auto}
+.call-body{display:none;padding:0 11px 10px}
+.call.open .call-body{display:block}
+.lbl{font-size:10px;color:var(--muted);letter-spacing:.6px;font-weight:600;margin:8px 0 4px;text-transform:uppercase}
+pre.code{
+  font-family:var(--mono);font-size:11.5px;line-height:1.65;
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  padding:9px 11px;overflow:auto;max-height:280px;
+  color:#9fd3c7;white-space:pre-wrap;word-break:break-word;
+}
+pre.code.err{color:#fca5a5;border-color:rgba(240,82,82,.35);background:rgba(240,82,82,.06)}
+.err-line{
+  display:flex;align-items:flex-start;gap:7px;font-size:12px;color:#fca5a5;
+  background:var(--err-soft);border:1px solid rgba(240,82,82,.3);
+  border-radius:var(--radius-sm);padding:7px 10px;word-break:break-word;
+}
+
+/* 最终答复 */
+.answer{
+  border:1px solid rgba(34,197,94,.28);background:var(--ok-soft);
+  border-radius:var(--radius-sm);padding:11px 13px;
+}
+.answer-h{font-size:10px;font-weight:700;letter-spacing:.7px;color:#86efac;margin-bottom:6px;text-transform:uppercase}
+.answer-body{font-size:13.5px;color:var(--text);word-break:break-word}
+.answer-body p{margin:0 0 8px}
+.answer-body p:last-child{margin-bottom:0}
+.answer-body h2,.answer-body h3,.answer-body h4{margin:10px 0 6px;font-size:14px;color:#d9e4f7}
+.answer-body ul{margin:4px 0 8px 18px}
+.answer-body li{margin:2px 0}
+.answer-body code{
+  font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.34);
+  padding:1px 5px;border-radius:4px;color:#9fd3c7;
+}
+.answer-body strong{color:#fff;font-weight:650}
+.answer .caret-blink{display:inline-block;width:7px;height:15px;background:var(--ok);
+  vertical-align:-2px;margin-left:2px;animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* ===================================================================
+   输入区
+   =================================================================== */
+.composer{
+  background:var(--panel);border:1px solid var(--border);
+  border-radius:var(--radius);padding:11px 13px;flex:0 0 auto;
+}
+.composer-top{display:flex;align-items:center;gap:12px;margin-bottom:9px;flex-wrap:wrap}
+.seg{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
+input[type=range]{width:104px;accent-color:var(--accent)}
+.composer-row{display:flex;gap:10px;align-items:flex-end}
+textarea{
+  flex:1 1 auto;min-height:52px;max-height:170px;resize:vertical;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);font-family:var(--sans);font-size:13.5px;line-height:1.6;
+  padding:10px 12px;outline:none;
+}
+textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.btn{
+  padding:10px 20px;border-radius:var(--radius-sm);border:1px solid transparent;
+  background:linear-gradient(140deg,var(--accent),#8b7bfd);
+  color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;
+  font-family:var(--sans);transition:.15s;white-space:nowrap;
+}
+.btn:hover:not(:disabled){filter:brightness(1.12)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:var(--panel-2);border-color:var(--border);color:var(--text-2);font-weight:500;padding:6px 12px;font-size:12.5px}
+.btn.ghost:hover:not(:disabled){border-color:var(--accent);color:#c4b8ff}
+.hint{font-size:11px;color:var(--muted);margin-top:7px}
+
+/* 调试面板 */
+.debug-row{display:flex;gap:8px;margin-bottom:9px}
+select,input[type=text]{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);font-family:var(--mono);font-size:11.5px;padding:7px 9px;outline:none;
+}
+select:focus,input[type=text]:focus{border-color:var(--accent)}
+select{flex:0 0 148px}
+input[type=text]{flex:1 1 auto}
+#debugOut{margin-top:9px;display:none}
+
+@media (max-width:1000px){
+  .layout{grid-template-columns:1fr;height:auto;min-height:calc(100vh - 67px)}
+  .sidebar{overflow:visible}
+  .runs{overflow:visible}
+  .main{min-height:0}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">🧰</div>
+    <div>
+      <h1>Agent Toolbox</h1>
+      <p>手写 Function Calling 循环 · 函数签名即工具 Schema</p>
+    </div>
+  </div>
+  <div class="badges">
+    <span class="badge accent" id="badgeMode"><span class="dot"></span><span>通道加载中</span></span>
+    <span class="badge" id="badgeModel"><span class="dot"></span><span>—</span></span>
+    <span class="badge" id="badgeLlm"><span class="dot"></span><span>检测中</span></span>
+    <button class="btn ghost" id="btnPing">测试连接</button>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- ============ 侧栏 ============ -->
+  <aside class="sidebar">
+    <section class="card">
+      <div class="card-head">
+        <h2>工具箱</h2>
+        <span class="count" id="toolCount">0</span>
+      </div>
+      <div class="card-body">
+        <input class="tool-search" id="toolSearch" placeholder="搜索工具…">
+        <div class="tools" id="toolList"></div>
+        <div class="hint" style="margin-top:9px">
+          点击卡片可启用 / 禁用该工具（用于演示「按场景裁剪工具集」），
+          名称右侧的 <span style="color:#fcd34d">危险</span> 标记表示它会触碰文件或网络。
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>单工具调试</h2><span class="count">跳过模型</span></div>
+      <div class="card-body">
+        <div class="debug-row">
+          <select id="debugTool"></select>
+        </div>
+        <div class="debug-row">
+          <input type="text" id="debugArgs" placeholder='{"expression": "sqrt(2)*100"}'>
+        </div>
+        <button class="btn ghost" id="btnDebug" style="width:100%">直接执行</button>
+        <div id="debugOut"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>安全边界</h2><span class="count">.env</span></div>
+      <div class="card-body">
+        <div class="lbl">允许访问的文件目录</div>
+        <pre class="code" id="safeDirs" style="max-height:110px">—</pre>
+        <div class="lbl">HTTP 域名白名单</div>
+        <pre class="code" id="safeHosts" style="max-height:90px">—</pre>
+        <div class="hint" style="margin-top:9px">
+          文件类工具只能访问以上目录（且做路径穿越校验）；
+          HTTP 工具只能在白名单内发起请求。
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>运行状态</h2><span class="count">/api/stats</span></div>
+      <div class="card-body">
+        <pre class="code" id="statsOut" style="max-height:190px">加载中…</pre>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ============ 主区 ============ -->
+  <main class="main">
+    <div class="runs" id="runs">
+      <div class="empty" id="emptyState">
+        <div class="big">🧰</div>
+        <h3>给个任务，看它自己挑工具</h3>
+        <p>
+          这里会实时展示 Agent 的完整轨迹：<b>思考 → 调用工具 → 观察结果 → 再规划 → 最终答复</b>。
+          工具 Schema 全部由函数签名自动生成，没有一行手写的 JSON。
+        </p>
+        <div class="chips" id="sampleChips"></div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-top">
+        <div class="seg">
+          <label for="maxSteps">最大轮数</label>
+          <input type="range" id="maxSteps" min="1" max="10" value="6">
+          <span id="maxStepsVal" style="font-family:var(--mono);color:var(--text-2)">6</span>
+        </div>
+        <div class="seg" style="margin-left:auto">
+          <span id="enabledCount">已启用 0 / 0 个工具</span>
+        </div>
+      </div>
+      <div class="composer-row">
+        <textarea id="input" placeholder="例如：先读一下 examples/服务器巡检记录.txt，然后统计里面有多少字（Ctrl + Enter 发送）"></textarea>
+        <button class="btn" id="btnSend">发送</button>
+      </div>
+      <div class="hint" id="hintLine">准备就绪</div>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+/* ===================================================================
+   全局状态
+   =================================================================== */
+const state = { config:null, tools:[], enabled:new Set(), running:false, history:[] };
+
+const $ = id => document.getElementById(id);
+
+const SAMPLES = [
+  "帮我算一下 (3+5)*2/4",
+  "现在几点了，顺便帮我算 12*8",
+  "把 100 公顷换算成亩",
+  "读取文件 examples/服务器巡检记录.txt，然后统计它的字数",
+  "目录下有哪些文件",
+  '从这段 JSON 里取值 路径 data.summary.amount_total：{"summary":{"amount_total":12860.5}}',
+  "把 1 kg 换算成 pound"
+];
+
+/* ===================================================================
+   工具函数
+   =================================================================== */
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+/** 极简 Markdown 渲染：先摘出代码块，避免后续正则误伤代码内容。 */
+function renderMarkdown(text){
+  const blocks = [];
+  let s = escapeHtml(text);
+  s = s.replace(/```[a-zA-Z]*\n?([\s\S]*?)```/g, (m, code) => {
+    blocks.push(code.replace(/\n$/, ""));
+    return "\u0000BLOCK" + (blocks.length - 1) + "\u0000";
+  });
+
+  s = s.replace(/^#### (.*)$/gm, "<h4>$1</h4>")
+       .replace(/^### (.*)$/gm, "<h4>$1</h4>")
+       .replace(/^## (.*)$/gm, "<h3>$1</h3>")
+       .replace(/^# (.*)$/gm, "<h2>$1</h2>")
+       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+       .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+
+  // 连续的行内列表合并成 <ul>
+  s = s.replace(/(?:^[ \t]*[-*] .*(?:\n|$))+/gm, block => {
+    const items = block.trim().split("\n")
+      .map(l => "<li>" + l.replace(/^[ \t]*[-*] /, "") + "</li>").join("");
+    return "<ul>" + items + "</ul>";
+  });
+
+  s = s.split(/\n{2,}/).map(p => {
+    const t = p.trim();
+    if (!t) return "";
+    if (/^<(ul|h[2-4]|pre)/.test(t)) return t;
+    return "<p>" + t.replace(/\n/g, "<br>") + "</p>";
+  }).join("");
+
+  return s.replace(/\u0000BLOCK(\d+)\u0000/g, (m, i) =>
+    '<pre class="code"><code>' + blocks[+i] + "</code></pre>");
+}
+
+function fmtJson(value){
+  try { return JSON.stringify(value, null, 2); }
+  catch { return String(value); }
+}
+
+/* ===================================================================
+   启动加载
+   =================================================================== */
+async function loadConfig(){
+  try{
+    const cfg = await (await fetch("/api/config")).json();
+    state.config = cfg;
+
+    $("badgeMode").querySelector("span:last-child").textContent =
+      cfg.agent.mode === "react" ? "ReAct 文本协议" : "Function Calling";
+    if (cfg.tools_unsupported){
+      $("badgeMode").className = "badge off";
+      $("badgeMode").querySelector("span:last-child").textContent += "（已降级）";
+    }
+
+    $("badgeModel").querySelector("span:last-child").textContent = cfg.llm.model;
+
+    const llmBadge = $("badgeLlm");
+    if (cfg.llm.enabled){
+      llmBadge.className = "badge on";
+      llmBadge.querySelector("span:last-child").textContent = "大模型已接入";
+    } else {
+      llmBadge.className = "badge off";
+      llmBadge.querySelector("span:last-child").textContent = "离线演示模式";
+    }
+    $("maxSteps").value = Math.min(10, Math.max(1, cfg.agent.max_steps));
+    $("maxStepsVal").textContent = $("maxSteps").value;
+
+    // 把后端的实际安全边界摊开给用户看，而不是只写在文档里
+    const dirs = cfg.safety.allowed_file_dirs;
+    $("safeDirs").textContent = (dirs && dirs.length) ? dirs.join("\n") : "（未启用文件工具）";
+    const hosts = cfg.safety.http_allowed_hosts;
+    $("safeHosts").textContent = Array.isArray(hosts)
+      ? (hosts.length ? hosts.join("\n") : "（不限制，生产环境建议收紧）")
+      : String(hosts);
+  }catch(e){
+    $("badgeMode").querySelector("span:last-child").textContent = "配置读取失败";
+  }
+}
+
+async function loadTools(){
+  const data = await (await fetch("/api/tools")).json();
+  state.tools = data.tools;
+  state.enabled = new Set(data.tools.map(t => t.name));
+
+  const list = $("toolList");
+  list.innerHTML = "";
+  data.tools.forEach(tool => {
+    const el = document.createElement("div");
+    el.className = "tool";
+    el.dataset.name = tool.name;
+    el.innerHTML =
+      '<div class="tool-top">' +
+        '<span class="tool-name">' + escapeHtml(tool.name) + "</span>" +
+        (tool.dangerous ? '<span class="tool-flag">危险</span>' : "") +
+        '<span class="tool-calls" data-calls>' + tool.call_count + " 次</span>" +
+      "</div>" +
+      '<div class="tool-desc">' + escapeHtml(tool.description) + "</div>" +
+      '<div class="tool-params">' + escapeHtml(tool.params) + "</div>" +
+      '<div class="tool-schema">' + escapeHtml(fmtJson(tool.parameters)) + "</div>";
+
+    el.addEventListener("click", e => {
+      if (e.target.closest(".tool-schema")) return;       // 看 schema 时不要切换开关
+      if (e.shiftKey || e.target.closest(".tool-name") || e.target.closest(".tool-params")){
+        el.classList.toggle("expanded");                  // 点名字 / 参数 → 展开 Schema
+        return;
+      }
+      if (state.enabled.has(tool.name)){
+        state.enabled.delete(tool.name);
+        el.classList.add("off");
+      } else {
+        state.enabled.add(tool.name);
+        el.classList.remove("off");
+      }
+      refreshEnabledCount();
+    });
+
+    list.appendChild(el);
+  });
+
+  $("toolCount").textContent = data.total;
+  refreshEnabledCount();
+  refreshDebugSelect();
+  buildChips();
+}
+
+function refreshEnabledCount(){
+  $("enabledCount").textContent =
+    "已启用 " + state.enabled.size + " / " + state.tools.length + " 个工具";
+}
+
+function refreshDebugSelect(){
+  const sel = $("debugTool");
+  sel.innerHTML = "";
+  state.tools.forEach(item => {
+    const option = document.createElement("option");
+    option.value = item.name;
+    option.textContent = item.name + (item.dangerous ? " ⚠" : "");
+    sel.appendChild(option);
+  });
+  fillDebugArgs();
+}
+
+function fillDebugArgs(){
+  const name = $("debugTool").value;
+  const tool = state.tools.find(t => t.name === name);
+  $("debugArgs").value = tool ? sampleArgsFor(name) : "{}";
+}
+
+function sampleArgsFor(name){
+  const samples = {
+    calculator: {expression: "sqrt(2)*100"},
+    convert_unit: {value: 100, from_unit: "hectare", to_unit: "mu"},
+    current_time: {utc_offset_hours: 8},
+    text_statistics: {text: "人工智能正在改变软件开发的方式", top_n: 8},
+    http_get: {url: "https://example.com", max_chars: 800},
+    list_directory: {sub_path: "."},
+    read_text_file: {sub_path: "服务器巡检记录.txt", max_chars: 600},
+    json_query: {json_text: '{"data":{"items":[{"name":"张三"}]}}', path: "data.items.0.name"}
+  };
+  return JSON.stringify(samples[name] || {});
+}
+
+function buildChips(){
+  const wrap = $("sampleChips");
+  wrap.innerHTML = "";
+  SAMPLES.forEach(text => {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    chip.textContent = text;
+    chip.addEventListener("click", () => {
+      $("input").value = text;
+      $("input").focus();
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+async function loadStats(){
+  try{
+    const stats = await (await fetch("/api/stats")).json();
+    const lines = [
+      "工具总数      " + stats.tool_total,
+      "累计调用次数  " + stats.tool_calls_total,
+      "大模型        " + (stats.llm_enabled ? "已接入" : "未配置（离线模式）"),
+      "Agent 模式    " + stats.mode,
+      "",
+      "── 各工具调用次数 ──"
+    ];
+    stats.per_tool.forEach(stat => {
+      lines.push("  " + stat.name.padEnd(18, " ") + stat.call_count + (stat.dangerous ? "   ⚠" : ""));
+    });
+    $("statsOut").textContent = lines.join("\n");
+    // 顺手同步工具卡上的计数
+    stats.per_tool.forEach(stat => {
+      const el = document.querySelector('.tool[data-name="' + stat.name + '"] [data-calls]');
+      if (el) el.textContent = stat.call_count + " 次";
+    });
+  }catch(e){
+    $("statsOut").textContent = "统计读取失败：" + e.message;
+  }
+}
+
+/* ===================================================================
+   渲染轨迹
+   =================================================================== */
+function newRunCard(question){
+  $("emptyState").style.display = "none";
+  const card = document.createElement("div");
+  card.className = "run";
+  card.innerHTML =
+    '<div class="run-head">' +
+      '<span class="run-q">' + escapeHtml(question) + "</span>" +
+      '<span class="run-meta" data-meta>运行中…</span>' +
+    "</div>" +
+    '<div class="run-body" data-body></div>';
+  $("runs").appendChild(card);
+  $("runs").scrollTop = $("runs").scrollHeight;
+
+  const body = card.querySelector("[data-body]");
+  const thinking = document.createElement("div");
+  thinking.className = "thinking";
+  thinking.innerHTML = '<span class="spinner"></span><span data-label>正在推理…</span>';
+  body.appendChild(thinking);
+  return { card, body, thinking, answerEl:null, answerText:"", questionText:question };
+}
+
+function setThinking(ctx, label){
+  if (!ctx.thinking) return;
+  ctx.thinking.querySelector("[data-label]").textContent = label;
+  ctx.thinking.style.display = "flex";
+}
+
+function hideThinking(ctx){ if (ctx.thinking) ctx.thinking.style.display = "none"; }
+
+function appendThought(ctx, text){
+  hideThinking(ctx);
+  const el = document.createElement("div");
+  el.className = "thought";
+  el.textContent = text;
+  ctx.body.appendChild(el);
+}
+
+function appendCall(ctx, ev){
+  hideThinking(ctx);
+  const el = document.createElement("div");
+  el.className = "call" + (ev.dangerous ? " dangerous" : "");
+  const args = ev.arguments && Object.keys(ev.arguments).length ? fmtJson(ev.arguments) : "{}";
+  el.innerHTML =
+    '<div class="call-h">' +
+      '<span class="caret">▶</span>' +
+      '<span class="call-tag' + (ev.dangerous ? " warn" : "") + '">' +
+        (ev.dangerous ? "危险工具" : "工具调用") + "</span>" +
+      '<span class="call-name">' + escapeHtml(ev.tool) + "</span>" +
+      '<span class="call-time" data-time>执行中…</span>' +
+    "</div>" +
+    '<div class="call-body">' +
+      '<div class="lbl">参数</div><pre class="code">' + escapeHtml(args) + "</pre>" +
+      '<div class="lbl">返回</div><pre class="code" data-result>等待中…</pre>' +
+    "</div>";
+  el.querySelector(".call-h").addEventListener("click", () => el.classList.toggle("open"));
+  ctx.body.appendChild(el);
+  ctx.pendingCall = el;
+  ctx.body.scrollTop = ctx.body.scrollHeight;
+}
+
+function completeCall(ctx, ev){
+  const el = ctx.pendingCall;
+  if (!el) return;
+  const resultEl = el.querySelector("[data-result]");
+  resultEl.textContent = ev.result || "(空)";
+  if (ev.error){
+    resultEl.classList.add("err");
+    el.querySelector("[data-time]").textContent = "失败 · " + Math.round(ev.duration_ms) + "ms";
+    const err = document.createElement("div");
+    err.className = "err-line";
+    err.textContent = "⚠ " + ev.error;
+    el.querySelector(".call-body").appendChild(err);
+    el.classList.add("open");
+  } else {
+    el.querySelector("[data-time]").textContent = Math.round(ev.duration_ms) + "ms";
+  }
+  ctx.pendingCall = null;
+}
+
+function ensureAnswer(ctx){
+  if (ctx.answerEl) return ctx.answerEl;
+  hideThinking(ctx);
+  const el = document.createElement("div");
+  el.className = "answer";
+  el.innerHTML =
+    '<div class="answer-h">最终答复 <span class="caret-blink"></span></div>' +
+    '<div class="answer-body" data-text></div>';
+  ctx.body.appendChild(el);
+  ctx.answerEl = el;
+  return el;
+}
+
+function appendDelta(ctx, text){
+  ensureAnswer(ctx);
+  ctx.answerText += text;
+  ctx.answerEl.querySelector("[data-text]").innerHTML = renderMarkdown(ctx.answerText);
+  $("runs").scrollTop = $("runs").scrollHeight;
+}
+
+function finishAnswer(ctx){
+  if (ctx.answerEl){
+    const caret = ctx.answerEl.querySelector(".caret-blink");
+    if (caret) caret.remove();
+  }
+}
+
+/* ===================================================================
+   发送（SSE）
+   =================================================================== */
+async function send(){
+  const text = $("input").value.trim();
+  if (!text || state.running) return;
+
+  const tools = Array.from(state.enabled);
+  if (tools.length === 0){
+    setHint("至少启用一个工具，或者点侧栏的卡片重新打开", true);
+    return;
+  }
+
+  state.running = true;
+  $("btnSend").disabled = true;
+  $("btnSend").textContent = "运行中";
+  const ctx = newRunCard(text);
+
+  const payload = {
+    message: text,
+    tools: tools.length === state.tools.length ? null : tools,
+    max_steps: parseInt($("maxSteps").value, 10),
+    history: state.history.slice(-8),
+    stream: true
+  };
+
+  try{
+    const resp = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok || !resp.body){
+      throw new Error("HTTP " + resp.status);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true){
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream:true});
+
+      // SSE 以空行分隔事件；最后一段可能不完整，留在 buffer 里
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop();
+
+      for (const chunk of chunks){
+        const lines = chunk.split("\n");
+        let name = "", data = "";
+        for (const line of lines){
+          if (line.startsWith("event: ")) name = line.slice(7).trim();
+          else if (line.startsWith("data: ")) data += line.slice(6);
+        }
+        if (!name || name === "[DONE]") continue;
+        let ev;
+        try { ev = JSON.parse(data); } catch { continue; }
+        handleEvent(ctx, name, ev);
+      }
+    }
+  }catch(e){
+    hideThinking(ctx);
+    const err = document.createElement("div");
+    err.className = "err-line";
+    err.textContent = "⚠ 请求失败：" + e.message;
+    ctx.body.appendChild(err);
+    ctx.card.querySelector("[data-meta]").textContent = "失败";
+  }finally{
+    finishAnswer(ctx);
+    if (ctx.thinking) ctx.thinking.style.display = "none";
+    state.running = false;
+    $("btnSend").disabled = false;
+    $("btnSend").textContent = "发送";
+    loadStats();
+  }
+}
+
+function handleEvent(ctx, name, ev){
+  const meta = ctx.card.querySelector("[data-meta]");
+  switch (name){
+    case "start":
+      meta.textContent = (ev.mode === "react" ? "ReAct" : "Function Calling") +
+        " · 最多 " + ev.max_steps + " 轮";
+      setHint("已开始，正在推理…");
+      break;
+    case "thinking":
+      setThinking(ctx, "第 " + ev.index + " 轮推理中…");
+      break;
+    case "thought":
+      appendThought(ctx, ev.content);
+      break;
+    case "tool_call":
+      appendCall(ctx, ev);
+      setHint("正在执行 " + ev.tool + " …");
+      break;
+    case "tool_result":
+      completeCall(ctx, ev);
+      break;
+    case "fallback":
+      hideThinking(ctx);
+      const fb = document.createElement("div");
+      fb.className = "err-line";
+      fb.textContent = "⚠ 服务端不支持 function calling，已自动降级到 ReAct 文本协议重跑";
+      ctx.body.appendChild(fb);
+      break;
+    case "delta":
+      appendDelta(ctx, ev.content);
+      break;
+    case "done":
+      finishAnswer(ctx);
+      meta.textContent = Math.round(ev.elapsed_ms) + "ms · " + ev.steps_used + " 轮 · " +
+        (ev.tools_called.length ? ev.tools_called.join(", ") : "未调用工具");
+      meta.title = (ev.usage && Object.keys(ev.usage).length) ? fmtJson(ev.usage) : "";
+      if (ev.answer){
+        state.history.push({role:"user", content:ctx.questionText});
+        state.history.push({role:"assistant", content:ev.answer});
+        state.history = state.history.slice(-8);
+      }
+      setHint("完成");
+      break;
+    case "error":
+      hideThinking(ctx);
+      const e2 = document.createElement("div");
+      e2.className = "err-line";
+      e2.textContent = "⚠ " + ev.error;
+      ctx.body.appendChild(e2);
+      meta.textContent = "出错";
+      break;
+  }
+}
+
+function setHint(text, warn){
+  const el = $("hintLine");
+  el.textContent = text;
+  el.style.color = warn ? "var(--err)" : "var(--muted)";
+}
+
+/* ===================================================================
+   事件绑定
+   =================================================================== */
+$("btnSend").addEventListener("click", send);
+
+$("input").addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter"){ e.preventDefault(); send(); }
+});
+
+$("maxSteps").addEventListener("input", e => {
+  $("maxStepsVal").textContent = e.target.value;
+});
+
+$("toolSearch").addEventListener("input", e => {
+  const kw = e.target.value.trim().toLowerCase();
+  document.querySelectorAll(".tool").forEach(el => {
+    const hit = !kw || el.dataset.name.toLowerCase().includes(kw) ||
+      el.textContent.toLowerCase().includes(kw);
+    el.style.display = hit ? "" : "none";
+  });
+});
+
+$("debugTool").addEventListener("change", fillDebugArgs);
+
+$("btnDebug").addEventListener("click", async () => {
+  const name = $("debugTool").value;
+  const raw = $("debugArgs").value.trim() || "{}";
+  const out = $("debugOut");
+  let args;
+  try { args = JSON.parse(raw); }
+  catch (e){
+    out.style.display = "block";
+    out.innerHTML = '<div class="err-line">⚠ 参数不是合法 JSON：' + escapeHtml(e.message) + "</div>";
+    return;
+  }
+  out.style.display = "block";
+  out.innerHTML = '<pre class="code">执行中…</pre>';
+  try{
+    const resp = await fetch("/api/tools/" + encodeURIComponent(name) + "/run", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(args)
+    });
+    const res = await resp.json();
+    out.innerHTML = res.ok
+      ? '<pre class="code">' + escapeHtml(res.result) + "</pre>"
+      : '<pre class="code err">' + escapeHtml(res.error) + "</pre>";
+  }catch(e){
+    out.innerHTML = '<div class="err-line">⚠ ' + escapeHtml(e.message) + "</div>";
+  }
+  loadStats();
+});
+
+$("btnPing").addEventListener("click", async () => {
+  $("btnPing").textContent = "测试中…";
+  try{
+    const ping = await (await fetch("/api/llm/ping")).json();
+    setHint((ping.ok ? "✓ " : "✗ ") + ping.message, !ping.ok);
+  }catch(e){
+    setHint("✗ 测试失败：" + e.message, true);
+  }
+  $("btnPing").textContent = "测试连接";
+});
+
+/* ===================================================================
+   启动
+   =================================================================== */
+(async function init(){
+  await loadConfig();
+  await loadTools();
+  await loadStats();
+  setHint("准备就绪 · 工具 Schema 由函数签名自动生成");
+})();
+</script>
+</body>
+</html>

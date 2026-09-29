@@ -1,0 +1,34 @@
+# ===== 机密：绝对不要提交 =====
+.env
+*.env
+!.env.example
+secrets.json
+
+# ===== 运行时产物 =====
+logs/
+*.log
+data/
+traces/
+!data/.gitkeep
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

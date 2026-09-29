@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 测试 (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: 运行测试
+        # 测试全程不依赖任何 API Key：规划走离线 planner，
+        # 工具执行全都是真实的（只对「域名白名单拦截」做断言，不发真实请求）
+        env:
+          LLM_API_KEY: ""
+        run: pytest -v
+
+      - name: 端到端验收（起真实服务 + 黑盒断言）
+        # 单测覆盖模块，这一步覆盖「装起来到底能不能跑」：
+        # SSE 全轨迹、多步工具链、路径穿越拦截、前端字段契约……
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8111 &
+          # 限制 uvicorn 的启动重试次数
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8111/api/health > /dev/null; then
+              echo "服务已就绪"; break
+            fi
+            sleep 1
+          done
+          python scripts/e2e_check.py http://127.0.0.1:8111
+
+  docker:
+    name: 镜像构建验证
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 构建镜像
+        run: docker build -t agent-toolbox:ci .
+
+      - name: 冒烟测试（启动容器并探测健康检查）
+        run: |
+          docker run -d --name agent-toolbox-ci -p 8000:8000 agent-toolbox:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null; then
+              echo "服务已就绪"; curl -s http://127.0.0.1:8000/api/health; exit 0
+            fi
+            sleep 2
+          done
+          echo "服务未能在 60 秒内就绪"; docker logs agent-toolbox-ci; exit 1
+
+      - name: 容器日志（失败时排查）
+        if: failure()
+        run: docker logs agent-toolbox-ci || true

@@ -1,0 +1,38 @@
+# 机密文件绝不进镜像上下文（避免 .env 被打进镜像层）
+.env
+*.env
+!.env.example
+secrets.json
+
+# 版本控制与 CI
+.git
+.gitignore
+.github
+
+# 测试与开发脚本（运行时不需要）
+tests/
+scripts/
+pytest.ini
+requirements-dev.txt
+
+# 文档与编辑器产物（README / LICENSE 要进镜像，故不排除 *.md）
+docs/
+.vscode/
+.idea/
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+*.log

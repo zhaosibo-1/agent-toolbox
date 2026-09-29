@@ -1,0 +1,34 @@
+services:
+  agent-toolbox:
+    build: .
+    image: agent-toolbox:latest
+    container_name: agent-toolbox
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      # 复制 .env.example 为 .env 并填入你自己的 Key。
+      # 即使不填，服务也会以「离线演示模式」正常启动：
+      # 规划阶段走规则化 planner，工具执行与 Agent 主循环全都是真实的。
+      - .env
+    environment:
+      # 生产环境请把 CORS 收窄到具体域名
+      CORS_ORIGINS: "*"
+      # 容器内文件工具的允许目录（被下面的 volume 覆盖）
+      ALLOWED_FILE_DIRS: "./examples"
+      # 强烈建议收紧：只允许 Agent 访问可信域名
+      # HTTP_ALLOWED_HOSTS: "api.example.com,wikipedia.org"
+      HTTP_ALLOWED_HOSTS: ""
+    volumes:
+      # 上传的示例文件持久化到宿主机，容器重建后不会丢
+      - ./examples:/app/examples
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
